@@ -1,0 +1,36 @@
+Menu="Dashboard:0"
+Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.11.9','>')"
+---
+<?php
+// FanFlow - Dashboard tile. Unraid places it in the chosen column (it can be moved and hidden
+// like any tile); its content is drawn by assets/fanflow-dash.js from include/status.php.
+$ffBase = '/plugins/fanflow';
+$ffV = @filemtime("$docroot$ffBase/assets/fanflow-dash.js") ?: time();
+$mytiles['fanflow']['column2'] =
+<<<EOT
+<tbody title="FanFlow">
+<tr><td>
+<span class='tile-header'>
+<span class='tile-header-left'>
+<i class='icon-fan f32'></i>
+<div class='section'>
+<h3 class='tile-header-main'>FanFlow</h3>
+<span id='fanflow-tile-sub' class='ff ff-sub'></span>
+</div>
+</span>
+<span class='tile-header-right'>
+<span class='tile-header-right-controls'>
+<a href='/Settings/FanFlow' title='FanFlow'><i class='fa fa-fw fa-cog control'></i></a>
+</span>
+</span>
+</span>
+</td></tr>
+<tr><td>
+<link rel="stylesheet" href="$ffBase/assets/fanflow.css?v=$ffV">
+<div id="fanflow-tile" class="ff ff-tile"></div>
+<script src="$ffBase/assets/i18n.js?v=$ffV"></script>
+<script src="$ffBase/assets/fanflow-dash.js?v=$ffV"></script>
+</td></tr>
+</tbody>
+EOT;
+?>

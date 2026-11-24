@@ -1,0 +1,62 @@
+#!/bin/bash
+# FanFlow service: start | stop | restart | status | detect
+#
+# start runs fanflowd under a small supervisor loop: if the service stops unexpectedly (it
+# leaves every fan at full speed when it does), it is started again 10 seconds later.
+# stop ends it and hands the fans back to the BIOS.
+
+DAEMON=/usr/local/emhttp/plugins/fanflow/scripts/fanflowd
+RUN=/var/local/fanflow
+SUPERVISOR=$RUN/supervisor.pid
+
+running() {
+  [[ -f $SUPERVISOR ]] && kill -0 "$(cat "$SUPERVISOR")" 2>/dev/null
+}
+
+start() {
+  if running; then echo "FanFlow is already running."; return 0; fi
+  mkdir -p "$RUN"
+  rm -f "$RUN/stop"
+  # setsid: the loop keeps running after the installer's shell ends.
+  setsid bash -c "
+    echo \$\$ > '$SUPERVISOR'
+    while [[ ! -f '$RUN/stop' ]]; do
+      /usr/bin/php -q '$DAEMON'
+      code=\$?
+      [[ -f '$RUN/stop' ]] && break
+      logger -t fanflow -- \"fanflowd ended (code \$code), restarting in 10 s\"
+      sleep 10
+    done
+    rm -f '$SUPERVISOR'
+  " </dev/null >/dev/null 2>&1 &
+  sleep 1
+  echo "FanFlow started."
+}
+
+stop() {
+  touch "$RUN/stop" 2>/dev/null
+  if running; then kill "$(cat "$SUPERVISOR")" 2>/dev/null; fi
+  if [[ -f $RUN/fanflowd.pid ]]; then
+    pid=$(cat "$RUN/fanflowd.pid")
+    kill "$pid" 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    kill -9 "$pid" 2>/dev/null
+  fi
+  rm -f "$SUPERVISOR" "$RUN/fanflowd.pid"
+  # Whatever happened above, the BIOS gets the fans back.
+  /usr/bin/php -q "$DAEMON" --restore
+  echo "FanFlow stopped."
+}
+
+status() {
+  if running; then echo "FanFlow is running."; else echo "FanFlow is stopped."; return 1; fi
+}
+
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; sleep 1; start ;;
+  status) status ;;
+  detect) mkdir -p "$RUN"; echo '{"action":"detect"}' > "$RUN/request.json"; echo "Detection requested." ;;
+  *) echo "Usage: $0 start|stop|restart|status|detect"; exit 1 ;;
+esac

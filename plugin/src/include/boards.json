@@ -1,0 +1,21 @@
+{
+  "_comment": "Header names of known motherboards, by board vendor and name (shell patterns, case ignored) and sensor chip driver. 'outputs' maps a PWM output of that chip to the name printed on the board. Entries marked probable come from the chip vendor's usual wiring and are shown with a question mark until the user confirms them.",
+  "boards": [
+    {
+      "title": "ASUS TUF GAMING B650M-PLUS (WIFI)",
+      "vendor": "ASUSTeK*",
+      "name": "TUF GAMING B650M-PLUS*",
+      "chip": "nct67*",
+      "probable": true,
+      "outputs": { "pwm1": "CHA_FAN1", "pwm2": "CPU_FAN", "pwm3": "CHA_FAN2", "pwm4": "CHA_FAN3", "pwm5": "AIO_PUMP", "pwm7": "CPU_OPT" }
+    },
+    {
+      "title": "ASUS (Nuvoton NCT67xx)",
+      "vendor": "ASUSTeK*",
+      "name": "*",
+      "chip": "nct67*",
+      "probable": true,
+      "outputs": { "pwm1": "CHA_FAN1", "pwm2": "CPU_FAN", "pwm3": "CHA_FAN2", "pwm4": "CHA_FAN3", "pwm5": "AIO_PUMP", "pwm7": "CPU_OPT" }
+    }
+  ]
+}

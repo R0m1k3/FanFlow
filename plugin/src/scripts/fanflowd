@@ -1,0 +1,328 @@
+#!/usr/bin/php -q
+<?php
+// FanFlow - the fan control service.
+//
+//   fanflowd              run (started and restarted by rc.fanflow)
+//   fanflowd --detect     detect the hardware again, then exit
+//   fanflowd --restore    hand every fan back to the BIOS, then exit
+//   fanflowd --passes N   run N passes then exit (tests)
+//
+// Each pass: read the temperatures, work out each fan's speed from its curves, write the
+// outputs, publish /var/local/fanflow/state.json for the Dashboard tile and the settings page.
+
+$lib = __DIR__ . '/../include/lib';
+foreach (['common', 'hwmon', 'sources', 'curve', 'detect', 'notify'] as $f) require_once "$lib/$f.php";
+
+$args = $argv;
+array_shift($args);
+if (in_array('--restore', $args, true)) {
+  $n = ff_restore_original();
+  echo "FanFlow: $n fan output(s) handed back to the BIOS.\n";
+  exit(0);
+}
+
+@mkdir(ff_run_dir(), 0755, true);
+
+class FanFlow {
+  public array $config = [];
+  public ?array $hardware = null;
+  public array $chips = [];
+  public array $fans = [];        // fan id => runtime state
+  public array $history = ['t' => [], 'temps' => [], 'fans' => []];
+  public array $changes = ['new' => [], 'missing' => []];
+  public array $conflicts = [];
+  public array $procConflicts = [];
+  public bool $external = false;   // a fan's output changed behind FanFlow's back
+  public string $mode = 'starting';
+  public ?array $reason = null;
+  public int $cpuMisses = 0;
+  public int $pass = 0;
+  public float $configTime = 0;
+  public bool $clean = false;
+  public array $lastState = [];
+
+  function boot(): void {
+    $this->hardware = ff_read_json(ff_hardware_file());
+    $this->chips = ff_hwmon_scan();
+    if (!$this->hardware) {
+      $this->detect(true);
+    } else {
+      $this->changes = ff_hardware_changed($this->hardware, $this->chips);
+      if ($this->changes['new']) $this->detect(false);
+      else $this->refreshSources();
+    }
+    $this->loadConfig();
+  }
+
+  // Sources change without any test (a card passed to a VM, a disk added): re-read them.
+  function refreshSources(): void {
+    $this->hardware['sources']['cpu'] = ff_cpu_sensors($this->chips) ?: ($this->hardware['sources']['cpu'] ?? []);
+  }
+
+  function loadConfig(): void {
+    clearstatcache();
+    $this->external = false; // saving the settings is the way to take the fans back
+    $this->configTime = (float)@filemtime(ff_config_file());
+    $this->config = ff_load_config($this->hardware);
+  }
+
+  function detect(bool $full): void {
+    // Every fan goes back to the BIOS while the outputs are tested one at a time.
+    ff_restore_original();
+    $this->fans = [];
+    $this->mode = 'detecting';
+    $last = 0;
+    $hw = ff_detect($full ? null : $this->hardware, $full, function ($step, $done, $total) use (&$last) {
+      if (ff_now() - $last < 1 && $step !== 'done') return;
+      $last = ff_now();
+      $this->publish(['detect' => ['step' => $step, 'done' => $done, 'total' => $total]]);
+    });
+    ff_write_json(ff_hardware_file(), $hw);
+    $this->hardware = $hw;
+    $this->chips = ff_hwmon_scan();
+    $this->changes = ['new' => [], 'missing' => ff_hardware_changed($hw, $this->chips)['missing']];
+    $this->mode = 'starting';
+    $this->loadConfig();
+    ff_log('detection done: ' . count($hw['fans']) . ' fan(s), ' . count($hw['emptyOutputs']) . ' empty output(s)');
+  }
+
+  function handleRequest(): void {
+    $req = ff_read_json(ff_request_file());
+    if (!$req) return;
+    @unlink(ff_request_file());
+    if (($req['action'] ?? '') === 'detect') $this->detect(true);
+  }
+
+  function fanDir(string $id): ?array {
+    $hw = $this->hardware['fans'][$id] ?? null;
+    if (!$hw || !isset($this->chips[$hw['chip']])) return null;
+    $dir = $this->chips[$hw['chip']]['dir'];
+    $ch = (int)substr($hw['output'], 3);
+    [$tChip, $tFan] = $hw['tach'] ? explode('/', $hw['tach']) : [null, null];
+    $tDir = $tChip && isset($this->chips[$tChip]) ? $this->chips[$tChip]['dir'] : null;
+    return [$dir, $ch, $tDir, $tFan ? (int)substr($tFan, 3) : null];
+  }
+
+  // Full speed on every fan FanFlow drives (sensor lost, critical temperature, crash).
+  function allFull(): void {
+    foreach (array_keys($this->hardware['fans'] ?? []) as $id) {
+      $d = $this->fanDir($id);
+      if (!$d) continue;
+      ff_remember_original($id, $d[0], $d[1]);
+      ff_pwm_set($d[0], $d[1], 255);
+      $this->fans[$id]['pct'] = 100;
+      $this->fans[$id]['written'] = 255;
+    }
+  }
+
+  function pass(): void {
+    $this->pass++;
+    if ($this->pass % 15 === 0) $this->chips = ff_hwmon_scan(); // drivers reloaded, hwmon renumbered
+    clearstatcache();
+    if ((float)@filemtime(ff_config_file()) !== $this->configTime) $this->loadConfig();
+
+    [$temps, $details] = ff_read_sources($this->chips, $this->hardware ?? []);
+    $cfg = $this->config;
+
+    if ($this->pass === 1 || $this->pass % 3 === 0) $this->procConflicts = ff_conflicts();
+    $this->conflicts = array_merge($this->procConflicts, $this->external ? ['external'] : []);
+    $this->reason = null;
+    $hasCpu = !empty($this->hardware['sources']['cpu']);
+    $this->cpuMisses = ($hasCpu && $temps['cpu'] === null) ? $this->cpuMisses + 1 : 0;
+    $critical = ff_critical($temps, $cfg['critical']);
+    $fanIds = array_keys($this->hardware['fans'] ?? []);
+
+    if ($this->conflicts) {
+      if ($this->mode !== 'readonly' && $cfg['notify']) ff_notify('conflict', ff_message('conflict.subject'), ff_message('conflict.body', ['what' => implode(', ', $this->conflicts)]));
+      $this->mode = 'readonly';
+      $this->fans = [];          // hands off: the other program owns the outputs now
+    } elseif (!$fanIds) {
+      $this->mode = 'readonly';
+    } elseif (!$cfg['enabled']) {
+      if ($this->mode !== 'bios') ff_restore_original();
+      $this->mode = 'bios';
+      $this->fans = [];
+    } elseif ($this->cpuMisses >= 2) {
+      if ($this->mode !== 'failsafe' && $cfg['notify']) ff_notify('failsafe', ff_message('failsafe.subject'), ff_message('failsafe.body'), 'alert');
+      $this->mode = 'failsafe';
+      $this->allFull();
+    } elseif ($critical) {
+      [$src, $t, $limit] = $critical;
+      $kind = str_starts_with($src, 'gpu') ? 'gpu' : $src;
+      if ($cfg['notify']) ff_notify("critical-$kind", ff_message('critical.subject', ['source' => strtoupper($kind), 'temp' => $t]),
+        ff_message('critical.body', ['source' => ff_message("source.$kind"), 'temp' => $t, 'limit' => $limit]), 'alert');
+      $this->mode = 'critical';
+      $this->reason = ['source' => $src, 'temp' => $t, 'limit' => $limit];
+      $this->allFull();
+    } else {
+      $this->mode = 'auto';
+      foreach ($fanIds as $id) $this->drive($id, $temps);
+    }
+    $this->readFans();
+    $this->record($temps);
+    $this->publish(['temps' => $temps, 'gpus' => $details['gpus'], 'disks' => $details['disks'], 'hottestDisk' => $details['hottestDisk']]);
+  }
+
+  function drive(string $id, array $temps): void {
+    $fan = $this->config['fans'][$id] ?? null;
+    $d = $this->fanDir($id);
+    if (!$fan || !$d) return;
+    [$dir, $ch] = $d;
+    $st = &$this->fans[$id];
+    $st ??= [];
+
+    if ($fan['mode'] === 'bios') {
+      if (($st['by'] ?? '') !== 'bios') ff_restore_original([$id]);
+      $st = ['by' => 'bios', 'pct' => ff_pwm_to_pct(ff_pwm_get($dir, $ch) ?? 0)];
+      return;
+    }
+    // FanFlow's own value written last pass: if it changed behind our back, someone else drives it.
+    if (isset($st['written'])) {
+      $enable = ff_pwm_enable_get($dir, $ch);
+      $now = ff_pwm_get($dir, $ch);
+      $st['external'] = ($enable !== 1 || ($now !== null && abs($now - $st['written']) > 3)) ? ($st['external'] ?? 0) + 1 : 0;
+      if ($st['external'] >= 3) { $this->external = true; return; }
+    }
+    $current = $st['pct'] ?? (float)ff_pwm_to_pct(ff_pwm_get($dir, $ch) ?? 255);
+    if (($st['by'] ?? '') === 'bios') $current = (float)ff_pwm_to_pct(ff_pwm_get($dir, $ch) ?? 255);
+
+    if ($fan['mode'] === 'fixed') { $pct = (float)$fan['fixed']; $by = 'fixed'; }
+    else [$pct, $by] = ff_next_speed($fan, $temps, $current, $this->config);
+
+    // Restarting a stopped fan: a short kick so it really starts.
+    $write = $pct;
+    if ($pct > 0 && $current <= 0) $st['kick'] = 2;
+    if (($st['kick'] ?? 0) > 0) { $write = max($pct, 50); $st['kick']--; }
+
+    ff_remember_original($id, $dir, $ch);
+    $raw = ff_pct_to_pwm($write);
+    if (($st['written'] ?? -1) !== $raw || ff_pwm_enable_get($dir, $ch) !== 1) ff_pwm_set($dir, $ch, $raw);
+    $st['written'] = $raw;
+    $st['pct'] = $pct;
+    $st['by'] = $by;
+  }
+
+  function readFans(): void {
+    foreach (array_keys($this->hardware['fans'] ?? []) as $id) {
+      $d = $this->fanDir($id);
+      $rpm = $d && $d[2] ? ff_hwmon_rpm($d[2], $d[3]) : null;
+      $st = &$this->fans[$id];
+      $st ??= [];
+      $st['rpm'] = $rpm;
+      if (!isset($st['pct']) && $d) $st['pct'] = ff_pwm_to_pct(ff_pwm_get($d[0], $d[1]) ?? 0);
+      // Stalled: asked for a real speed for three passes, still 0 rpm.
+      $asked = (float)($st['pct'] ?? 0);
+      $min = (float)($this->config['fans'][$id]['min'] ?? 25);
+      $st['stallCount'] = ($rpm === 0 && $asked >= max(30, $min) && $this->mode !== 'readonly') ? ($st['stallCount'] ?? 0) + 1 : 0;
+      $st['stalled'] = $st['stallCount'] >= 3;
+      if ($st['stalled'] && $this->config['notify']) {
+        $name = $this->config['fans'][$id]['name'] ?? $id;
+        if ($name === $id) $name = (ff_lang() === 'fr' ? 'Ventilateur ' : 'Fan ') . preg_replace('/^.*pwm/', '', $id);
+        ff_notify("stall-$id", ff_message('stall.subject', ['fan' => $name]), ff_message('stall.body', ['fan' => $name, 'pct' => round($asked)]));
+      }
+      unset($st);
+    }
+  }
+
+  // Ten minutes of history, one point per pass.
+  function record(array $temps): void {
+    $keep = (int)ceil(600 / max(2, $this->config['interval']));
+    $this->history['t'][] = (int)ff_now();
+    foreach ($temps as $k => $v) $this->history['temps'][$k][] = $v;
+    foreach ($this->fans as $id => $st) $this->history['fans'][$id][] = $st['rpm'] ?? null;
+    $n = count($this->history['t']);
+    // Series that appeared late get padded at the front so every series lines up with t.
+    foreach (['temps', 'fans'] as $group) foreach ($this->history[$group] as $k => $series) {
+      if (count($series) < $n) $series = array_merge(array_fill(0, $n - count($series), null), $series);
+      $this->history[$group][$k] = array_slice($series, -$keep);
+    }
+    $this->history['t'] = array_slice($this->history['t'], -$keep);
+  }
+
+  function publish(array $extra = []): void {
+    $fans = [];
+    foreach ($this->hardware['fans'] ?? [] as $id => $hw) {
+      $cfg = $this->config['fans'][$id] ?? ff_default_fan($hw, $this->config['preset'] ?? 'balanced');
+      $st = $this->fans[$id] ?? [];
+      $fans[] = ['id' => $id, 'name' => $cfg['name'], 'role' => $cfg['role'], 'mode' => $cfg['mode'],
+        'pct' => isset($st['pct']) ? round($st['pct']) : null, 'rpm' => $st['rpm'] ?? null, 'by' => $st['by'] ?? null,
+        'stalled' => $st['stalled'] ?? false, 'maxRpm' => $hw['calibration']['maxRpm'] ?? null];
+    }
+    $others = [];
+    foreach ($this->hardware['otherFans'] ?? [] as $o) {
+      [$c, $f] = explode('/', $o['tach']);
+      $dir = $this->chips[$c]['dir'] ?? null;
+      $others[] = ['tach' => $o['tach'], 'rpm' => $dir ? ff_hwmon_rpm($dir, (int)substr($f, 3)) : null];
+    }
+    $state = array_replace($this->lastState, [
+      'version' => FF_VERSION,
+      'updated' => (int)ff_now(),
+      'pid' => getmypid(),
+      'mode' => $this->mode,
+      'reason' => $this->reason,
+      'preset' => $this->config['preset'] ?? 'balanced',
+      'interval' => $this->config['interval'] ?? 4,
+      'critical' => $this->config['critical'] ?? ff_default_config()['critical'],
+      'conflicts' => $this->conflicts,
+      'detect' => null,
+      'fans' => $fans,
+      'otherFans' => $others,
+      'changes' => $this->changes,
+      'history' => $this->history,
+    ], $extra);
+    $this->lastState = $state;
+    ff_write_json(ff_state_file(), $state);
+  }
+}
+
+$ff = new FanFlow();
+$GLOBALS['ff'] = $ff;
+
+// A crash (PHP error, exception) leaves every driven fan at full speed; rc.fanflow restarts the
+// service a few seconds later.
+register_shutdown_function(function () use ($ff) {
+  if ($ff->clean) return;
+  $ff->allFull();
+  $ff->mode = 'failsafe';
+  $ff->publish();
+  ff_log('stopped unexpectedly: fans at full speed');
+});
+$stop = false;
+if (function_exists('pcntl_async_signals')) {
+  pcntl_async_signals(true);
+  foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) pcntl_signal($sig, function () use (&$stop) { $stop = true; });
+}
+
+if (in_array('--detect', $args, true)) {
+  $ff->hardware = ff_read_json(ff_hardware_file());
+  $ff->detect(true);
+  ff_restore_original();
+  $ff->clean = true;
+  echo "FanFlow: " . count($ff->hardware['fans']) . " fan(s) found.\n";
+  exit(0);
+}
+
+$passes = null;
+$i = array_search('--passes', $args, true);
+if ($i !== false) $passes = (int)($args[$i + 1] ?? 1);
+
+file_put_contents(ff_run_dir() . '/fanflowd.pid', getmypid());
+$ff->boot();
+while (!$stop) {
+  $ff->handleRequest();
+  $ff->pass();
+  if ($passes !== null && --$passes <= 0) break;
+  // Sleep in one-second slices so a detection request or a stop is handled quickly.
+  for ($s = 0; $s < $ff->config['interval'] && !$stop; $s++) {
+    ff_sleep(1);
+    if (is_file(ff_request_file())) break;
+  }
+}
+$ff->clean = true;
+// Normal stop: the BIOS drives the fans again (tests keep the outputs and state to inspect them).
+if ($passes === null) {
+  ff_restore_original();
+  $ff->mode = 'stopped';
+  $ff->publish();
+}
+@unlink(ff_run_dir() . '/fanflowd.pid');
