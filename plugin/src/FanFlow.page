@@ -1,0 +1,15 @@
+Menu="Utilities"
+Title="FanFlow"
+Icon="icon-fan"
+Tag="icon-fan"
+---
+<?php
+// FanFlow - settings page (Settings > User Utilities > FanFlow). Everything below is drawn by
+// assets/fanflow-settings.js from include/status.php?full=1 and saved with include/save.php.
+$ffBase = '/plugins/fanflow';
+$ffV = @filemtime("$docroot$ffBase/assets/fanflow-settings.js") ?: time();
+?>
+<link rel="stylesheet" href="<?=$ffBase?>/assets/fanflow.css?v=<?=$ffV?>">
+<div id="fanflow-settings" class="ff ff-settings" data-csrf="<?=htmlspecialchars($var['csrf_token'] ?? '')?>"></div>
+<script src="<?=$ffBase?>/assets/i18n.js?v=<?=$ffV?>"></script>
+<script src="<?=$ffBase?>/assets/fanflow-settings.js?v=<?=$ffV?>"></script>

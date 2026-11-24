@@ -1,0 +1,221 @@
+/* FanFlow - Dashboard tile and settings page.
+   Colours come from the page: Glacier's tokens when that theme is on, otherwise the text colour
+   of the Unraid theme (light or dark), so the same rules work everywhere. */
+
+.ff {
+  --ff-accent: var(--gl-accent, #ff8c2f);
+  --ff-text: var(--gl-text, currentColor);
+  --ff-muted: var(--gl-muted, color-mix(in srgb, currentColor 58%, transparent));
+  --ff-line: var(--gl-border, color-mix(in srgb, currentColor 14%, transparent));
+  --ff-soft: var(--gl-subtle, color-mix(in srgb, currentColor 5%, transparent));
+  --ff-cool: #2b9a8b;
+  --ff-warm: #d99a22;
+  --ff-hot: #e0484e;
+  --ff-info: #3a7bd5;
+  --ff-r: var(--gl-r-md, 10px);
+  --ff-r-sm: 7px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  box-sizing: border-box;
+}
+.ff *, .ff *::before, .ff *::after { box-sizing: inherit; }
+.ff-muted { color: var(--ff-muted); }
+
+/* Header line of the tile, under the title */
+.ff-sub { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; }
+.ff-sub-text { color: var(--ff-muted); font-size: 12px; }
+.ff-pill {
+  display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px;
+  border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 20px;
+  background: color-mix(in srgb, var(--ff-cool) 16%, transparent); color: var(--ff-cool);
+}
+.ff-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ff-pill--auto::before { animation: ff-breathe 2.4s ease-in-out infinite; }
+.ff-pill--critical, .ff-pill--failsafe { background: color-mix(in srgb, var(--ff-hot) 16%, transparent); color: var(--ff-hot); }
+.ff-pill--readonly, .ff-pill--stopped, .ff-pill--stale { background: color-mix(in srgb, var(--ff-warm) 18%, transparent); color: var(--ff-warm); }
+.ff-pill--bios, .ff-pill--detecting, .ff-pill--starting { background: color-mix(in srgb, var(--ff-info) 15%, transparent); color: var(--ff-info); }
+@keyframes ff-breathe { 50% { opacity: .35; } }
+
+/* Banners and notes */
+.ff-banner, .ff-note {
+  margin: 0 0 10px; padding: 8px 11px; border-radius: var(--ff-r-sm); font-size: 12.5px;
+  border: 1px solid transparent; text-align: left;
+}
+.ff-banner--info, .ff-note--info { background: color-mix(in srgb, var(--ff-info) 9%, transparent); border-color: color-mix(in srgb, var(--ff-info) 22%, transparent); }
+.ff-banner--warm, .ff-note--warm { background: color-mix(in srgb, var(--ff-warm) 12%, transparent); border-color: color-mix(in srgb, var(--ff-warm) 30%, transparent); }
+.ff-banner--hot, .ff-note--hot { background: color-mix(in srgb, var(--ff-hot) 11%, transparent); border-color: color-mix(in srgb, var(--ff-hot) 35%, transparent); font-weight: 600; }
+
+/* ---- Dashboard tile ---------------------------------------------------------------------- */
+.ff-tile { padding: 2px 0 4px; text-align: left; }
+
+.ff-temps { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.ff-temp {
+  --ff-heat: var(--ff-muted);
+  padding: 8px 10px 9px; border-radius: var(--ff-r-sm); background: var(--ff-soft);
+  border: 1px solid var(--ff-line); min-width: 0;
+}
+.ff-heat--cool { --ff-heat: var(--ff-cool); }
+.ff-heat--warm { --ff-heat: var(--ff-warm); }
+.ff-heat--hot { --ff-heat: var(--ff-hot); }
+.ff-temp-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ff-temp-label { font-size: 11.5px; color: var(--ff-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-temp-value { font-size: 21px; font-weight: 650; letter-spacing: -.01em; line-height: 1.1; color: var(--ff-heat); white-space: nowrap; }
+.ff-heat--none .ff-temp-value { color: var(--ff-muted); }
+.ff-temp-value small { font-size: 11px; font-weight: 500; margin-left: 1px; color: var(--ff-muted); }
+.ff-temp-note { font-size: 11px; color: var(--ff-muted); margin-top: 3px; }
+.ff-spark { display: block; width: 100%; height: 22px; margin: 4px 0 5px; overflow: visible; }
+.ff-spark-line { fill: none; stroke: var(--ff-heat); stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.ff-spark-fill { fill: color-mix(in srgb, var(--ff-heat) 13%, transparent); stroke: none; }
+.ff-gauge { height: 4px; border-radius: 4px; background: var(--ff-line); overflow: hidden; }
+.ff-gauge i { display: block; height: 100%; border-radius: inherit; background: var(--ff-heat); transition: width .6s ease; }
+
+.ff-fans { display: flex; flex-direction: column; gap: 2px; }
+.ff-fan {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 6px 4px; border-top: 1px solid var(--ff-line);
+}
+.ff-fan:first-child { border-top: 0; }
+.ff-fan-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; min-width: 0; }
+.ff-fan-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ff-tag {
+  flex: none; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 999px;
+  color: var(--ff-muted); background: var(--ff-soft); border: 1px solid var(--ff-line);
+}
+.ff-tag--hot { color: var(--ff-hot); border-color: color-mix(in srgb, var(--ff-hot) 40%, transparent); }
+.ff-bar { height: 5px; margin-top: 6px; border-radius: 5px; background: var(--ff-line); overflow: hidden; }
+.ff-bar i { display: block; height: 100%; border-radius: inherit; background: var(--ff-accent); transition: width .8s ease; }
+.ff-fan--stalled .ff-bar i { background: var(--ff-hot); }
+.ff-fan-num { text-align: right; white-space: nowrap; line-height: 1.15; }
+.ff-fan-num b { font-size: 15px; font-weight: 650; }
+.ff-fan-num span { font-size: 11px; color: var(--ff-muted); margin-left: 3px; }
+.ff-fan-num em { display: block; font-style: normal; font-size: 11px; color: var(--ff-muted); }
+.ff-foot { margin-top: 8px; font-size: 11.5px; color: var(--ff-muted); }
+.ff-empty { margin: 4px 0; color: var(--ff-muted); font-size: 12.5px; }
+
+/* Rotor */
+.ff-rotor { display: inline-block; width: 28px; height: 28px; color: var(--ff-accent); }
+.ff-rotor svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+.ff-rotor-ring { fill: none; stroke: var(--ff-line); stroke-width: 1.2; }
+.ff-rotor-hub { fill: var(--ff-soft); stroke: currentColor; stroke-width: 1.2; }
+.ff-rotor path { opacity: .9; }
+.ff-rotor--on svg { animation: ff-spin 1s linear infinite; animation-duration: inherit; }
+.ff-rotor:not(.ff-rotor--on) { color: var(--ff-muted); }
+.ff-fan--stalled .ff-rotor { color: var(--ff-hot); }
+.ff-rotor--lg { width: 34px; height: 34px; }
+@keyframes ff-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ff-rotor--on svg, .ff-pill--auto::before { animation: none; } }
+
+/* ---- Settings page ----------------------------------------------------------------------- */
+.ff-settings { max-width: 860px; margin: 8px 0 80px; text-align: left; }
+.ff-card {
+  margin: 0 0 16px; padding: 16px 18px; border: 1px solid var(--ff-line); border-radius: var(--ff-r);
+  background: var(--gl-surface, transparent);
+}
+.ff-card--quiet { background: var(--ff-soft); }
+.ff-card h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.ff-card h3 { margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
+.ff-card h3:first-child { margin-top: 0; }
+.ff-card p { margin: 4px 0; }
+.ff-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.ff-card-head h2 { flex: 1 1 auto; }
+.ff-card-head .ff-muted { font-size: 12px; }
+.ff-live { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.ff-fanmeta { font-size: 12px; margin: -6px 0 10px !important; }
+
+.ff-facts { display: grid; grid-template-columns: minmax(130px, max-content) 1fr; gap: 6px 18px; margin: 0 0 12px; font-size: 13px; }
+.ff-facts dt { color: var(--ff-muted); margin: 0; }
+.ff-facts dd { margin: 0; }
+
+.ff-form { display: flex; flex-direction: column; }
+.ff-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--ff-line); flex-wrap: wrap; margin: 0; }
+.ff-form > .ff-row:first-child { border-top: 0; }
+.ff-row--top { align-items: flex-start; }
+.ff-label { flex: 0 0 230px; font-size: 13px; font-weight: 500; }
+.ff-label small { display: block; font-size: 11.5px; font-weight: 400; color: var(--ff-muted); margin-top: 1px; }
+.ff-settings input[type=text], .ff-settings input[type=number], .ff-settings select {
+  height: 32px; padding: 0 10px; margin: 0; border: 1px solid var(--ff-line); border-radius: var(--ff-r-sm);
+  background: var(--gl-input, transparent); color: inherit; font: inherit; font-size: 13px; min-width: 0; width: auto;
+}
+.ff-settings input[type=text] { width: 260px; max-width: 100%; }
+.ff-settings select { min-width: 200px; }
+.ff-num { display: inline-flex; align-items: center; gap: 6px; }
+.ff-num input[type=number] { width: 76px !important; text-align: right; }
+.ff-num span { color: var(--ff-muted); font-size: 12px; }
+.ff-crit { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.ff-crit label { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; margin: 0; }
+.ff-crit label > span:first-child { color: var(--ff-muted); min-width: 44px; }
+.ff-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; margin: 0 0 0 8px; }
+.ff-check input { margin: 0; }
+.ff-range { display: inline-flex; align-items: center; gap: 10px; }
+.ff-range input { width: 220px; accent-color: var(--ff-accent); margin: 0; }
+.ff-range b { min-width: 44px; font-size: 13px; }
+
+.ff-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex: none; }
+.ff-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; width: 100%; height: 100%; }
+.ff-switch i { position: absolute; inset: 0; border-radius: 999px; background: var(--ff-line); transition: background .2s; }
+.ff-switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .2s; }
+.ff-switch input:checked + i { background: var(--ff-accent); }
+.ff-switch input:checked + i::after { transform: translateX(18px); }
+.ff-switch input:focus-visible + i { outline: 2px solid var(--ff-accent); outline-offset: 2px; }
+
+.ff-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 9px; background: var(--ff-soft); border: 1px solid var(--ff-line); flex-wrap: wrap; }
+.ff-settings .ff-seg button {
+  height: 28px; padding: 0 12px; margin: 0; border: 0; border-radius: 7px; background: transparent; color: inherit;
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; min-width: 0; box-shadow: none; text-transform: none; letter-spacing: 0;
+}
+.ff-settings .ff-seg button.on { background: var(--ff-accent); color: #fff; }
+.ff-settings .ff-seg button:disabled { cursor: default; opacity: 1; }
+.ff-settings .ff-seg button:not(.on):hover { background: var(--ff-line); }
+
+.ff-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 300px; }
+.ff-settings .ff-chip {
+  height: 28px; padding: 0 11px; margin: 0; border-radius: 999px; border: 1px dashed var(--ff-line); background: transparent;
+  color: var(--ff-muted); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; min-width: 0; box-shadow: none; text-transform: none; letter-spacing: 0;
+}
+.ff-settings .ff-chip.on { border-style: solid; color: inherit; background: var(--ff-soft); }
+.ff-settings .ff-chip.on.sel { border-color: var(--ff-accent); background: color-mix(in srgb, var(--ff-accent) 14%, transparent); }
+
+.ff-curves { border-top: 1px solid var(--ff-line); }
+.ff-editor { margin-top: 4px; border: 1px solid var(--ff-line); border-radius: var(--ff-r-sm); background: var(--ff-soft); padding: 4px; }
+.ff-svg { display: block; width: 100%; height: auto; touch-action: none; user-select: none; }
+.ff-grid { stroke: var(--ff-line); stroke-width: 1; }
+.ff-axis { fill: var(--ff-muted); font-size: 10.5px; }
+.ff-floor { fill: color-mix(in srgb, var(--ff-muted) 10%, transparent); }
+.ff-curve { fill: none; stroke: var(--ff-accent); stroke-width: 2.4; stroke-linejoin: round; }
+.ff-curve-fill { fill: color-mix(in srgb, var(--ff-accent) 12%, transparent); }
+.ff-pt { cursor: grab; }
+.ff-pt:active { cursor: grabbing; }
+.ff-pt-hit { fill: transparent; }
+.ff-pt-dot { fill: var(--gl-surface, #fff); stroke: var(--ff-accent); stroke-width: 2.4; transition: r .12s; }
+.ff-pt:hover .ff-pt-dot { r: 7.5; }
+.ff-now { stroke: var(--ff-text); stroke-width: 1; stroke-dasharray: 3 3; opacity: .55; }
+.ff-now-dot { fill: var(--ff-text); }
+.ff-now-text { fill: var(--ff-text); font-size: 11px; font-weight: 600; }
+.ff-help { font-size: 11.5px; margin-top: 6px !important; }
+
+.ff-btn, .ff-settings button.ff-btn {
+  height: 32px; padding: 0 14px; margin: 0; border-radius: var(--ff-r-sm); border: 1px solid var(--ff-line);
+  background: var(--ff-soft); color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  min-width: 0; box-shadow: none; text-transform: none; letter-spacing: 0;
+}
+.ff-settings button.ff-btn--primary { background: var(--ff-accent); border-color: var(--ff-accent); color: #fff; }
+.ff-settings button.ff-btn:disabled { opacity: .45; cursor: default; }
+
+.ff-actions {
+  position: sticky; bottom: 12px; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: 10px 12px; border-radius: var(--ff-r); border: 1px solid var(--ff-line);
+  background: var(--gl-surface, Canvas); box-shadow: var(--gl-shadow-md, 0 4px 14px rgba(0,0,0,.12));
+}
+.ff-msg { flex: 1; font-size: 12.5px; color: var(--ff-muted); }
+.ff-msg--ok { color: var(--ff-cool); font-weight: 600; }
+.ff-msg--hot { color: var(--ff-hot); font-weight: 600; }
+.ff-msg--warm { color: var(--ff-warm); font-weight: 600; }
+
+@media (max-width: 640px) {
+  .ff-card { padding: 14px 12px; }
+  .ff-label { flex-basis: 100%; }
+  .ff-facts { grid-template-columns: 1fr; gap: 2px; }
+  .ff-facts dd { margin-bottom: 6px; }
+  .ff-range input { width: 160px; }
+  .ff-settings input[type=text] { width: 100%; }
+}
