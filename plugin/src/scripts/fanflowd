@@ -40,6 +40,7 @@ class FanFlow {
   public float $configTime = 0;
   public bool $clean = false;
   public array $lastState = [];
+  public array $otherState = [];  // tachometer => [on, since]: when each fan not driven started or stopped
 
   function boot(): void {
     $this->hardware = ff_read_json(ff_hardware_file());
@@ -52,6 +53,7 @@ class FanFlow {
       if ($this->changes['new']) $this->detect(false);
       else $this->refreshSources();
     }
+    $this->adoptOthers();
     $this->loadConfig();
   }
 
@@ -88,6 +90,14 @@ class FanFlow {
     $this->mode = 'starting';
     $this->loadConfig();
     ff_log('detection done: ' . count($hw['fans']) . ' fan(s), ' . count($hw['emptyOutputs']) . ' empty output(s)');
+  }
+
+  function adoptOthers(): void {
+    if (!$this->hardware) return;
+    $added = ff_adopt_other_fans($this->hardware, $this->chips);
+    if (!$added) return;
+    ff_write_json(ff_hardware_file(), $this->hardware);
+    ff_log('fan(s) not drivable added: ' . implode(', ', $added));
   }
 
   function handleRequest(): void {
@@ -129,6 +139,7 @@ class FanFlow {
       $this->changes['missing'] = $changed['missing'];
       // A fan plugged in while running, or an output that showed up: test only those.
       if ($changed['new']) { $this->changes['new'] = $changed['new']; $this->detect(false); }
+      $this->adoptOthers();
     }
     clearstatcache();
     if ((float)@filemtime(ff_config_file()) !== $this->configTime) $this->loadConfig();
@@ -264,7 +275,12 @@ class FanFlow {
     foreach ($this->hardware['otherFans'] ?? [] as $o) {
       [$c, $f] = explode('/', $o['tach']);
       $dir = $this->chips[$c]['dir'] ?? null;
-      $others[] = ['tach' => $o['tach'], 'rpm' => $dir ? ff_hwmon_rpm($dir, (int)substr($f, 3)) : null];
+      $rpm = $dir ? ff_hwmon_rpm($dir, (int)substr($f, 3)) : null;
+      // Started or stopped: remember when (unknown for the state found when the service starts).
+      $on = ($rpm ?? 0) > 0;
+      $prev = $this->otherState[$o['tach']] ?? null;
+      if (!$prev || $prev['on'] !== $on) $this->otherState[$o['tach']] = ['on' => $on, 'since' => $prev ? (int)ff_now() : null];
+      $others[] = ['tach' => $o['tach'], 'rpm' => $rpm, 'on' => $on, 'since' => $this->otherState[$o['tach']]['since']];
     }
     $state = array_replace($this->lastState, [
       'version' => FF_VERSION,

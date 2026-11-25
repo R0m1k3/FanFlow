@@ -12,7 +12,7 @@
       'fan': 'Fan {n}', 'rpm': 'rpm', 'asleep': '{n} asleep', 'allAsleep': 'all asleep', 'noReading': 'no reading',
       'updated': 'updated {s} s ago', 'drivenBy': 'driven by {src}', 'stalled': 'not turning',
       'tile.noFans': 'No fan FanFlow can drive was found. Readings only.',
-      'tile.others': '{n} fan(s) not drivable: {list}',
+      'tile.others': '{n} fan(s) not drivable: {list}', 'other.tag': '3-pin', 'other.tip': 'Not drivable: runs by itself, FanFlow only shows it.', 'other.on': 'running', 'other.off': 'stopped', 'other.onSince': 'running since {t}', 'other.offSince': 'stopped since {t}',
       'banner.detecting': 'Detecting the fans: each one speeds up for a few seconds ({done}/{total}).',
       'banner.critical': '{src} at {temp} °C (limit {limit} °C): every fan at full speed.',
       'banner.failsafe': 'CPU temperature unreadable: every fan at full speed.',
@@ -52,7 +52,7 @@
       'fan': 'Ventilateur {n}', 'rpm': 'tr/min', 'asleep': '{n} en veille', 'allAsleep': 'tous en veille', 'noReading': 'pas de mesure',
       'updated': 'mis à jour il y a {s} s', 'drivenBy': 'commandé par {src}', 'stalled': 'ne tourne pas',
       'tile.noFans': 'Aucun ventilateur pilotable trouvé. Affichage des mesures seulement.',
-      'tile.others': '{n} ventilateur(s) non pilotable(s) : {list}',
+      'tile.others': '{n} ventilateur(s) non pilotable(s) : {list}', 'other.tag': '3 broches', 'other.tip': 'Non pilotable : il tourne tout seul, FanFlow l\'affiche seulement.', 'other.on': 'en marche', 'other.off': 'arrêté', 'other.onSince': 'en marche depuis {t}', 'other.offSince': 'arrêté depuis {t}',
       'banner.detecting': 'Détection des ventilateurs : chacun accélère quelques secondes ({done}/{total}).',
       'banner.critical': '{src} à {temp} °C (limite {limit} °C) : tous les ventilateurs à fond.',
       'banner.failsafe': 'Température CPU illisible : tous les ventilateurs à fond.',
@@ -110,8 +110,17 @@
   // A fan with no name of its own is called after its output: "Fan 3" for pwm3.
   function fanName(f) {
     if (f.name && f.name !== f.id) return f.name;
-    var m = /pwm(\d+)$/.exec(f.id || '');
+    var m = /(?:pwm|fan)(\d+)$/.exec(f.id || '');
     return t('fan', { n: m ? m[1] : '?' });
+  }
+  // State of a fan FanFlow does not drive: "running since 14:32", "stopped since 14:40".
+  function otherStatus(o) {
+    var on = o.on != null ? o.on : o.rpm > 0;
+    if (!o.since) return t(on ? 'other.on' : 'other.off');
+    var d = new Date(o.since * 1000), now = new Date();
+    var time = d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() !== now.toDateString()) time = d.toLocaleDateString(lang, { day: 'numeric', month: 'short' }) + ' ' + time;
+    return t(on ? 'other.onSince' : 'other.offSince', { t: time });
   }
   // Heat level of a temperature against its critical limit: cool / warm / hot.
   function heat(temp, limit) {
@@ -143,6 +152,6 @@
       '<polyline points="0,24 ' + line + ' 100,24" class="ff-spark-fill"/><polyline points="' + line + '" class="ff-spark-line"/></svg>';
   }
 
-  window.FanFlow = { t: t, esc: esc, lang: lang, gpuName: gpuName, sourceName: sourceName, fanName: fanName, heat: heat, limitFor: limitFor, rotor: rotor, sparkline: sparkline,
+  window.FanFlow = { t: t, esc: esc, lang: lang, gpuName: gpuName, sourceName: sourceName, fanName: fanName, otherStatus: otherStatus, heat: heat, limitFor: limitFor, rotor: rotor, sparkline: sparkline,
     base: '/plugins/fanflow' };
 })();

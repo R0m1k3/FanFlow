@@ -269,6 +269,19 @@ function ff_detect(?array $previous, bool $full, ?callable $progress = null): ar
   return $hw;
 }
 
+// Fans turning on a tachometer that no driven fan uses (3-pin fans, hubs) are kept in otherFans,
+// so they stay listed while they are stopped. Returns the tachometers added.
+function ff_adopt_other_fans(array &$hardware, array $chips): array {
+  $used = array_merge(array_filter(array_column($hardware['fans'] ?? [], 'tach')), array_column($hardware['otherFans'] ?? [], 'tach'));
+  $added = [];
+  foreach (ff_all_rpms(array_filter($chips, fn($c) => !$c['gpu'])) as $tach => $rpm) {
+    if ($rpm <= 0 || in_array($tach, $used, true)) continue;
+    $hardware['otherFans'][] = ['tach' => $tach, 'rpm' => $rpm];
+    $added[] = $tach;
+  }
+  return $added;
+}
+
 // Boot check without spinning anything: are the same outputs still there?
 function ff_hardware_changed(array $hardware, array $chips): array {
   $now = ff_controllable_outputs($chips);

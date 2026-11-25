@@ -58,9 +58,17 @@
   }
 
   function others(s) {
-    var list = (s.otherFans || []).filter(function (o) { return o.rpm > 0; });
+    var list = s.otherFans || [];
     if (!list.length) return '';
-    return '<div class="ff-foot">' + esc(t('tile.others', { n: list.length, list: list.map(function (o) { return o.rpm + ' ' + t('rpm'); }).join(', ') })) + '</div>';
+    return '<div class="ff-fans ff-fans--others">' + list.map(function (o) {
+      var on = o.on != null ? o.on : o.rpm > 0;
+      return '<div class="ff-fan ff-fan--other' + (on ? '' : ' ff-fan--off') + '">' + F.rotor(o.rpm || 0) +
+        '<div class="ff-fan-main"><div class="ff-fan-name"><span>' + esc(F.fanName({ id: o.tach })) + '</span>' +
+        '<span class="ff-tag" title="' + esc(t('other.tip')) + '">' + esc(t('other.tag')) + '</span></div>' +
+        '<div class="ff-fan-state">' + esc(F.otherStatus(o)) + '</div></div>' +
+        '<div class="ff-fan-num"><b>' + (o.rpm == null ? '–' : o.rpm) + '</b><span>' + esc(t('rpm')) + '</span></div>' +
+        '</div>';
+    }).join('') + '</div>';
   }
 
   function render(s) {

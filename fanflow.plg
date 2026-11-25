@@ -3,7 +3,7 @@
 
 <PLUGIN name="fanflow"
         author="R0m1k3"
-        version="2026.11.25.1945"
+        version="2026.11.25.1953"
         launch="Settings/FanFlow"
         pluginURL="https://raw.githubusercontent.com/R0m1k3/FanFlow/main/fanflow.plg"
         support="https://github.com/R0m1k3/FanFlow/issues"
@@ -11,6 +11,9 @@
         min="7.0.0">
 
 <CHANGES>
+###2026.11.25.1953
+- 3-pin fans (not drivable) are always shown on the Dashboard tile and the settings page, stopped ones included, with "running since 14:32" / "stopped since 14:40". A fan FanFlow does not know is added as soon as it turns, even after detection.
+
 ###2026.11.25.1945
 - Fix: a fan plugged on a header that was empty at detection was never seen. FanFlow now notices a fan it does not know turning, tests the empty headers again (at start and while running) and drives the new fan.
 
@@ -147,9 +150,17 @@ cat > /usr/local/emhttp/plugins/fanflow/assets/fanflow-dash.js <<'FANFLOW_EOF'
   }
 
   function others(s) {
-    var list = (s.otherFans || []).filter(function (o) { return o.rpm > 0; });
+    var list = s.otherFans || [];
     if (!list.length) return '';
-    return '<div class="ff-foot">' + esc(t('tile.others', { n: list.length, list: list.map(function (o) { return o.rpm + ' ' + t('rpm'); }).join(', ') })) + '</div>';
+    return '<div class="ff-fans ff-fans--others">' + list.map(function (o) {
+      var on = o.on != null ? o.on : o.rpm > 0;
+      return '<div class="ff-fan ff-fan--other' + (on ? '' : ' ff-fan--off') + '">' + F.rotor(o.rpm || 0) +
+        '<div class="ff-fan-main"><div class="ff-fan-name"><span>' + esc(F.fanName({ id: o.tach })) + '</span>' +
+        '<span class="ff-tag" title="' + esc(t('other.tip')) + '">' + esc(t('other.tag')) + '</span></div>' +
+        '<div class="ff-fan-state">' + esc(F.otherStatus(o)) + '</div></div>' +
+        '<div class="ff-fan-num"><b>' + (o.rpm == null ? '–' : o.rpm) + '</b><span>' + esc(t('rpm')) + '</span></div>' +
+        '</div>';
+    }).join('') + '</div>';
   }
 
   function render(s) {
@@ -396,7 +407,7 @@ cat > /usr/local/emhttp/plugins/fanflow/assets/fanflow-settings.js <<'FANFLOW_EO
     var others = (live || data).otherFans || [];
     if (!others.length && !(hw.emptyOutputs || []).length) return '';
     return '<section class="ff-card ff-card--quiet">' +
-      (others.length ? '<h3>' + esc(t('set.notDrivable')) + '</h3><p>' + others.map(function (o) { return esc(o.tach.split('/').pop() + ' · ' + (o.rpm == null ? '–' : o.rpm) + ' ' + t('rpm')); }).join('<br>') + '</p>' : '') +
+      (others.length ? '<h3>' + esc(t('set.notDrivable')) + '</h3><p>' + others.map(function (o) { return esc(F.fanName({ id: o.tach }) + ' (' + o.tach.split('/').pop() + ') · ' + (o.rpm == null ? '–' : o.rpm) + ' ' + t('rpm') + ' · ' + F.otherStatus(o)); }).join('<br>') + '</p>' : '') +
       ((hw.emptyOutputs || []).length ? '<h3>' + esc(t('set.empty')) + '</h3><p class="ff-muted">' + esc(hw.emptyOutputs.map(function (o) { return o.split('/').pop(); }).join(', ')) + '</p>' : '') +
       '</section>';
   }
@@ -794,6 +805,11 @@ cat > /usr/local/emhttp/plugins/fanflow/assets/fanflow.css <<'FANFLOW_EOF'
   .ff-range input { width: 160px; }
   .ff-settings input[type=text] { width: 100%; }
 }
+
+/* Fans FanFlow does not drive (3-pin): listed under the driven ones, greyed while stopped. */
+.ff-fans--others { margin-top: 6px; border-top: 1px dashed var(--ff-line, rgba(127,127,127,.25)); }
+.ff-fan-state { font-size: 11px; color: var(--ff-muted); margin-top: 3px; }
+.ff-fan--off .ff-fan-name, .ff-fan--off .ff-fan-num b { opacity: .55; }
 FANFLOW_EOF
 cat > /usr/local/emhttp/plugins/fanflow/assets/i18n.js <<'FANFLOW_EOF'
 /* FanFlow - texts in French and English, picked from the webGUI's language (<html lang>),
@@ -810,7 +826,7 @@ cat > /usr/local/emhttp/plugins/fanflow/assets/i18n.js <<'FANFLOW_EOF'
       'fan': 'Fan {n}', 'rpm': 'rpm', 'asleep': '{n} asleep', 'allAsleep': 'all asleep', 'noReading': 'no reading',
       'updated': 'updated {s} s ago', 'drivenBy': 'driven by {src}', 'stalled': 'not turning',
       'tile.noFans': 'No fan FanFlow can drive was found. Readings only.',
-      'tile.others': '{n} fan(s) not drivable: {list}',
+      'tile.others': '{n} fan(s) not drivable: {list}', 'other.tag': '3-pin', 'other.tip': 'Not drivable: runs by itself, FanFlow only shows it.', 'other.on': 'running', 'other.off': 'stopped', 'other.onSince': 'running since {t}', 'other.offSince': 'stopped since {t}',
       'banner.detecting': 'Detecting the fans: each one speeds up for a few seconds ({done}/{total}).',
       'banner.critical': '{src} at {temp} °C (limit {limit} °C): every fan at full speed.',
       'banner.failsafe': 'CPU temperature unreadable: every fan at full speed.',
@@ -850,7 +866,7 @@ cat > /usr/local/emhttp/plugins/fanflow/assets/i18n.js <<'FANFLOW_EOF'
       'fan': 'Ventilateur {n}', 'rpm': 'tr/min', 'asleep': '{n} en veille', 'allAsleep': 'tous en veille', 'noReading': 'pas de mesure',
       'updated': 'mis à jour il y a {s} s', 'drivenBy': 'commandé par {src}', 'stalled': 'ne tourne pas',
       'tile.noFans': 'Aucun ventilateur pilotable trouvé. Affichage des mesures seulement.',
-      'tile.others': '{n} ventilateur(s) non pilotable(s) : {list}',
+      'tile.others': '{n} ventilateur(s) non pilotable(s) : {list}', 'other.tag': '3 broches', 'other.tip': 'Non pilotable : il tourne tout seul, FanFlow l\'affiche seulement.', 'other.on': 'en marche', 'other.off': 'arrêté', 'other.onSince': 'en marche depuis {t}', 'other.offSince': 'arrêté depuis {t}',
       'banner.detecting': 'Détection des ventilateurs : chacun accélère quelques secondes ({done}/{total}).',
       'banner.critical': '{src} à {temp} °C (limite {limit} °C) : tous les ventilateurs à fond.',
       'banner.failsafe': 'Température CPU illisible : tous les ventilateurs à fond.',
@@ -908,8 +924,17 @@ cat > /usr/local/emhttp/plugins/fanflow/assets/i18n.js <<'FANFLOW_EOF'
   // A fan with no name of its own is called after its output: "Fan 3" for pwm3.
   function fanName(f) {
     if (f.name && f.name !== f.id) return f.name;
-    var m = /pwm(\d+)$/.exec(f.id || '');
+    var m = /(?:pwm|fan)(\d+)$/.exec(f.id || '');
     return t('fan', { n: m ? m[1] : '?' });
+  }
+  // State of a fan FanFlow does not drive: "running since 14:32", "stopped since 14:40".
+  function otherStatus(o) {
+    var on = o.on != null ? o.on : o.rpm > 0;
+    if (!o.since) return t(on ? 'other.on' : 'other.off');
+    var d = new Date(o.since * 1000), now = new Date();
+    var time = d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() !== now.toDateString()) time = d.toLocaleDateString(lang, { day: 'numeric', month: 'short' }) + ' ' + time;
+    return t(on ? 'other.onSince' : 'other.offSince', { t: time });
   }
   // Heat level of a temperature against its critical limit: cool / warm / hot.
   function heat(temp, limit) {
@@ -941,7 +966,7 @@ cat > /usr/local/emhttp/plugins/fanflow/assets/i18n.js <<'FANFLOW_EOF'
       '<polyline points="0,24 ' + line + ' 100,24" class="ff-spark-fill"/><polyline points="' + line + '" class="ff-spark-line"/></svg>';
   }
 
-  window.FanFlow = { t: t, esc: esc, lang: lang, gpuName: gpuName, sourceName: sourceName, fanName: fanName, heat: heat, limitFor: limitFor, rotor: rotor, sparkline: sparkline,
+  window.FanFlow = { t: t, esc: esc, lang: lang, gpuName: gpuName, sourceName: sourceName, fanName: fanName, otherStatus: otherStatus, heat: heat, limitFor: limitFor, rotor: rotor, sparkline: sparkline,
     base: '/plugins/fanflow' };
 })();
 FANFLOW_EOF
@@ -995,7 +1020,7 @@ cat > /usr/local/emhttp/plugins/fanflow/include/lib/common.php <<'FANFLOW_EOF'
 // Every path goes through ff_path(), so the whole plugin runs against a simulated machine when
 // FANFLOW_ROOT points to a folder holding a fake /sys, /var/local/emhttp and /boot (see test/sim).
 
-const FF_VERSION = '2026.11.25.1945';
+const FF_VERSION = '2026.11.25.1953';
 
 function ff_root(): string {
   $root = getenv('FANFLOW_ROOT');
@@ -1522,6 +1547,19 @@ function ff_detect(?array $previous, bool $full, ?callable $progress = null): ar
   return $hw;
 }
 
+// Fans turning on a tachometer that no driven fan uses (3-pin fans, hubs) are kept in otherFans,
+// so they stay listed while they are stopped. Returns the tachometers added.
+function ff_adopt_other_fans(array &$hardware, array $chips): array {
+  $used = array_merge(array_filter(array_column($hardware['fans'] ?? [], 'tach')), array_column($hardware['otherFans'] ?? [], 'tach'));
+  $added = [];
+  foreach (ff_all_rpms(array_filter($chips, fn($c) => !$c['gpu'])) as $tach => $rpm) {
+    if ($rpm <= 0 || in_array($tach, $used, true)) continue;
+    $hardware['otherFans'][] = ['tach' => $tach, 'rpm' => $rpm];
+    $added[] = $tach;
+  }
+  return $added;
+}
+
 // Boot check without spinning anything: are the same outputs still there?
 function ff_hardware_changed(array $hardware, array $chips): array {
   $now = ff_controllable_outputs($chips);
@@ -1942,6 +1980,7 @@ class FanFlow {
   public float $configTime = 0;
   public bool $clean = false;
   public array $lastState = [];
+  public array $otherState = [];  // tachometer => [on, since]: when each fan not driven started or stopped
 
   function boot(): void {
     $this->hardware = ff_read_json(ff_hardware_file());
@@ -1954,6 +1993,7 @@ class FanFlow {
       if ($this->changes['new']) $this->detect(false);
       else $this->refreshSources();
     }
+    $this->adoptOthers();
     $this->loadConfig();
   }
 
@@ -1990,6 +2030,14 @@ class FanFlow {
     $this->mode = 'starting';
     $this->loadConfig();
     ff_log('detection done: ' . count($hw['fans']) . ' fan(s), ' . count($hw['emptyOutputs']) . ' empty output(s)');
+  }
+
+  function adoptOthers(): void {
+    if (!$this->hardware) return;
+    $added = ff_adopt_other_fans($this->hardware, $this->chips);
+    if (!$added) return;
+    ff_write_json(ff_hardware_file(), $this->hardware);
+    ff_log('fan(s) not drivable added: ' . implode(', ', $added));
   }
 
   function handleRequest(): void {
@@ -2031,6 +2079,7 @@ class FanFlow {
       $this->changes['missing'] = $changed['missing'];
       // A fan plugged in while running, or an output that showed up: test only those.
       if ($changed['new']) { $this->changes['new'] = $changed['new']; $this->detect(false); }
+      $this->adoptOthers();
     }
     clearstatcache();
     if ((float)@filemtime(ff_config_file()) !== $this->configTime) $this->loadConfig();
@@ -2166,7 +2215,12 @@ class FanFlow {
     foreach ($this->hardware['otherFans'] ?? [] as $o) {
       [$c, $f] = explode('/', $o['tach']);
       $dir = $this->chips[$c]['dir'] ?? null;
-      $others[] = ['tach' => $o['tach'], 'rpm' => $dir ? ff_hwmon_rpm($dir, (int)substr($f, 3)) : null];
+      $rpm = $dir ? ff_hwmon_rpm($dir, (int)substr($f, 3)) : null;
+      // Started or stopped: remember when (unknown for the state found when the service starts).
+      $on = ($rpm ?? 0) > 0;
+      $prev = $this->otherState[$o['tach']] ?? null;
+      if (!$prev || $prev['on'] !== $on) $this->otherState[$o['tach']] = ['on' => $on, 'since' => $prev ? (int)ff_now() : null];
+      $others[] = ['tach' => $o['tach'], 'rpm' => $rpm, 'on' => $on, 'since' => $this->otherState[$o['tach']]['since']];
     }
     $state = array_replace($this->lastState, [
       'version' => FF_VERSION,
@@ -2312,7 +2366,7 @@ chmod 755 /usr/local/emhttp/plugins/fanflow/scripts/rc.fanflow
 cp /usr/local/emhttp/plugins/fanflow/scripts/rc.fanflow /etc/rc.d/rc.fanflow && chmod 755 /etc/rc.d/rc.fanflow
 /etc/rc.d/rc.fanflow start
 echo ""
-echo "FanFlow 2026.11.25.1945 is installed."
+echo "FanFlow 2026.11.25.1953 is installed."
 echo "The first start detects the fans: each one speeds up to full for a few seconds."
 echo "Settings: Settings > User Utilities > FanFlow. Dashboard: the FanFlow tile."
 echo ""

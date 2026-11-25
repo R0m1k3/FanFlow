@@ -219,7 +219,7 @@
     var others = (live || data).otherFans || [];
     if (!others.length && !(hw.emptyOutputs || []).length) return '';
     return '<section class="ff-card ff-card--quiet">' +
-      (others.length ? '<h3>' + esc(t('set.notDrivable')) + '</h3><p>' + others.map(function (o) { return esc(o.tach.split('/').pop() + ' · ' + (o.rpm == null ? '–' : o.rpm) + ' ' + t('rpm')); }).join('<br>') + '</p>' : '') +
+      (others.length ? '<h3>' + esc(t('set.notDrivable')) + '</h3><p>' + others.map(function (o) { return esc(F.fanName({ id: o.tach }) + ' (' + o.tach.split('/').pop() + ') · ' + (o.rpm == null ? '–' : o.rpm) + ' ' + t('rpm') + ' · ' + F.otherStatus(o)); }).join('<br>') + '</p>' : '') +
       ((hw.emptyOutputs || []).length ? '<h3>' + esc(t('set.empty')) + '</h3><p class="ff-muted">' + esc(hw.emptyOutputs.map(function (o) { return o.split('/').pop(); }).join(', ')) + '</p>' : '') +
       '</section>';
   }

@@ -213,6 +213,29 @@ check('still empty outputs stay empty', count(hw()['emptyOutputs']) === 4, hw()[
 daemon('--passes 1');
 check('no new test at the next start', state()['changes']['new'] === [] && count(hw()['fans']) === 3, state()['changes'] ?? null);
 
+section('3-pin fan: always listed, start and stop seen');
+$simFile = "$simRoot/sim.json";
+$sim = json_decode(file_get_contents($simFile), true);
+$sim['fixed'][] = ['chip' => 'nct6799', 'tach' => 5, 'rpm' => 800, 'dir' => $sim['dirs']['nct6799']];
+file_put_contents($simFile, json_encode($sim));
+setval('nct6799', 'fan5_input', 800);
+daemon('--passes 1');
+$o = array_values(array_filter(state()['otherFans'], fn($o) => $o['tach'] === "{$pfx}fan5"));
+check('new 3-pin fan listed as running', ($o[0]['on'] ?? null) === true && $o[0]['rpm'] === 800, state()['otherFans']);
+check('kept in hardware.json', in_array("{$pfx}fan5", array_column(hw()['otherFans'], 'tach'), true));
+$sim['fixed'][count($sim['fixed']) - 1]['rpm'] = 0;
+file_put_contents($simFile, json_encode($sim));
+setval('nct6799', 'fan5_input', 0);
+daemon('--passes 1');
+$o = array_values(array_filter(state()['otherFans'], fn($o) => $o['tach'] === "{$pfx}fan5"));
+check('stopped 3-pin fan still listed', ($o[0]['on'] ?? null) === false && $o[0]['rpm'] === 0, $o);
+$before = count(hw()['otherFans']);
+setval('nct6799', 'fan5_input', 800);
+$sim['fixed'][count($sim['fixed']) - 1]['rpm'] = 800;
+file_put_contents($simFile, json_encode($sim));
+daemon('--passes 1');
+check('not added twice', count(hw()['otherFans']) === $before, hw()['otherFans']);
+
 // --- other machines -------------------------------------------------------------------------
 section('detection: Intel + ITE, no graphics card');
 sim('intel-it87');

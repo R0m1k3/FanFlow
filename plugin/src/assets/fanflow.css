@@ -219,3 +219,8 @@
   .ff-range input { width: 160px; }
   .ff-settings input[type=text] { width: 100%; }
 }
+
+/* Fans FanFlow does not drive (3-pin): listed under the driven ones, greyed while stopped. */
+.ff-fans--others { margin-top: 6px; border-top: 1px dashed var(--ff-line, rgba(127,127,127,.25)); }
+.ff-fan-state { font-size: 11px; color: var(--ff-muted); margin-top: 3px; }
+.ff-fan--off .ff-fan-name, .ff-fan--off .ff-fan-num b { opacity: .55; }

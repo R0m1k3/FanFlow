@@ -1,4 +1,7 @@
 ###@@VERSION@@
+- 3-pin fans (not drivable) are always shown on the Dashboard tile and the settings page, stopped ones included, with "running since 14:32" / "stopped since 14:40". A fan FanFlow does not know is added as soon as it turns, even after detection.
+
+###2026.11.25.1945
 - Fix: a fan plugged on a header that was empty at detection was never seen. FanFlow now notices a fan it does not know turning, tests the empty headers again (at start and while running) and drives the new fan.
 
 ###2026.11.25.1912
