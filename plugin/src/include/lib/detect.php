@@ -42,6 +42,39 @@ function ff_load_drivers(array $chips): array {
   return [$tried, $loaded];
 }
 
+// Module that drives a sensor chip, from the chip name hwmon gives ("nct6799" -> nct6775).
+function ff_driver_for_chip(string $chip): ?string {
+  $map = ['/^nct66(8[3-7])/' => 'nct6683', '/^nct67\d\d|^nct6106|^nct6116/' => 'nct6775', '/^it8[67]/' => 'it87',
+    '/^(f71|f8000|f81)/' => 'f71882fg', '/^w836/' => 'w83627ehf', '/^asus/' => 'asus_ec_sensors'];
+  foreach ($map as $re => $module) if (preg_match($re, $chip)) return $module;
+  return null;
+}
+
+// After a reboot the sensor driver that detection loaded is gone, and with it every fan of that
+// chip. Load it again (the module of each missing chip, then the ones detection loaded, then the
+// usual list) until the known fans are back. Returns the new scan.
+function ff_reload_drivers(array $hardware, array $chips): array {
+  $missing = ff_hardware_changed($hardware, $chips)['missing'];
+  if (!$missing || ff_root() !== '') return $chips;
+  $modules = [];
+  foreach ($missing as $fanId) {
+    $module = ff_driver_for_chip(explode(':', $fanId)[0]);
+    if ($module) $modules[] = $module;
+  }
+  $modules = array_values(array_unique(array_merge($modules, $hardware['drivers']['loaded'] ?? [], FF_DRIVERS)));
+  foreach ($modules as $module) {
+    exec('modprobe ' . escapeshellarg($module) . ' 2>/dev/null', $o, $code);
+    if ($code !== 0) continue;
+    usleep(500000);
+    $chips = ff_hwmon_scan();
+    if (!ff_hardware_changed($hardware, $chips)['missing']) {
+      ff_log("sensor driver $module loaded, known fans back");
+      break;
+    }
+  }
+  return $chips;
+}
+
 // The kernel refused the sensor chip because the ACPI firmware claims the same ports; the fix is
 // the boot option acpi_enforce_resources=lax, which FanFlow only suggests.
 function ff_acpi_conflict(): bool {

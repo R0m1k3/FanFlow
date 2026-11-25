@@ -68,6 +68,14 @@ check('stop allowed: under the minimum means stopped', $p == 0, $p);
 check('no reading at all: hold', $p == 40 && $by === null, [$p, $by]);
 check('critical detection', ff_critical(['cpu' => 50, 'gpu:01:00.0' => 88, 'hdd' => null], $cfg['critical'])[0] === 'gpu:01:00.0');
 
+section('sensor driver of a chip');
+check('nct6799 -> nct6775', ff_driver_for_chip('nct6799') === 'nct6775');
+check('nct6687 -> nct6683', ff_driver_for_chip('nct6687') === 'nct6683');
+check('it8689 -> it87', ff_driver_for_chip('it8689') === 'it87');
+check('k10temp -> none', ff_driver_for_chip('k10temp') === null);
+$hwGone = ['fans' => ['nct6799:nct6775.656/pwm1' => []], 'emptyOutputs' => []];
+check('missing fan seen', ff_hardware_changed($hwGone, [])['missing'] === ['nct6799:nct6775.656/pwm1']);
+
 section('settings check');
 [$v, $err] = ff_validate_config(['enabled' => 1, 'interval' => 1, 'fans' => ['nct:x/pwm1' => ['name' => '<b>Front</b>', 'mode' => 'fixed', 'fixed' => 5, 'min' => 25,
   'curves' => ['cpu' => [[70, 90], [30, 20]], 'gpu:01:00.0' => [[40, 30], [70, 100]]]]]]);
