@@ -201,6 +201,18 @@ file_put_contents("$simRoot/boot/config/plugins/fanflow/hardware.json", json_enc
 daemon('--passes 1');
 check('only the new output is tested and added', isset(hw()['fans']["{$pfx}pwm3"]) && count(hw()['fans']) === 3);
 
+section('fan plugged on an output found empty');
+$h = json_decode($saved, true);
+unset($h['fans']["{$pfx}pwm3"]);
+$h['emptyOutputs'][] = "{$pfx}pwm3";
+sort($h['emptyOutputs']);
+file_put_contents("$simRoot/boot/config/plugins/fanflow/hardware.json", json_encode($h));
+daemon('--passes 1');
+check('the empty outputs are tested again and the new fan is driven', isset(hw()['fans']["{$pfx}pwm3"]) && !in_array("{$pfx}pwm3", hw()['emptyOutputs'], true), hw()['emptyOutputs']);
+check('still empty outputs stay empty', count(hw()['emptyOutputs']) === 4, hw()['emptyOutputs']);
+daemon('--passes 1');
+check('no new test at the next start', state()['changes']['new'] === [] && count(hw()['fans']) === 3, state()['changes'] ?? null);
+
 // --- other machines -------------------------------------------------------------------------
 section('detection: Intel + ITE, no graphics card');
 sim('intel-it87');

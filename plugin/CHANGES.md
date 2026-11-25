@@ -1,4 +1,7 @@
 ###@@VERSION@@
+- Fix: a fan plugged on a header that was empty at detection was never seen. FanFlow now notices a fan it does not know turning, tests the empty headers again (at start and while running) and drives the new fan.
+
+###2026.11.25.1912
 - Fix: after a reboot the fans were "no longer found" and stayed with the BIOS, because the sensor chip driver loaded during detection was not loaded again. The service now loads it at start (and tries again every 10 minutes while fans are missing).
 
 ###2026.11.24.1001
