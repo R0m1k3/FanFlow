@@ -273,5 +273,15 @@ function ff_detect(?array $previous, bool $full, ?callable $progress = null): ar
 function ff_hardware_changed(array $hardware, array $chips): array {
   $now = ff_controllable_outputs($chips);
   $known = array_merge(array_keys($hardware['fans'] ?? []), $hardware['emptyOutputs'] ?? []);
-  return ['new' => array_values(array_diff($now, $known)), 'missing' => array_values(array_diff(array_keys($hardware['fans'] ?? []), $now))];
+  $new = array_values(array_diff($now, $known));
+  // A fan plugged on an output found empty before: a tachometer that no known fan uses now
+  // turns. Which output it hangs on is unknown without a test, so the empty outputs are tested again.
+  $empty = array_values(array_intersect($hardware['emptyOutputs'] ?? [], $now));
+  if ($empty) {
+    $used = array_merge(array_filter(array_column($hardware['fans'] ?? [], 'tach')), array_column($hardware['otherFans'] ?? [], 'tach'));
+    foreach (ff_all_rpms(array_filter($chips, fn($c) => !$c['gpu'])) as $tach => $rpm) {
+      if ($rpm > 0 && !in_array($tach, $used, true)) { $new = array_merge($new, $empty); break; }
+    }
+  }
+  return ['new' => $new, 'missing' => array_values(array_diff(array_keys($hardware['fans'] ?? []), $now))];
 }

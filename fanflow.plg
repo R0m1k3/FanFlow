@@ -3,7 +3,7 @@
 
 <PLUGIN name="fanflow"
         author="R0m1k3"
-        version="2026.11.25.1912"
+        version="2026.11.25.1945"
         launch="Settings/FanFlow"
         pluginURL="https://raw.githubusercontent.com/R0m1k3/FanFlow/main/fanflow.plg"
         support="https://github.com/R0m1k3/FanFlow/issues"
@@ -11,6 +11,9 @@
         min="7.0.0">
 
 <CHANGES>
+###2026.11.25.1945
+- Fix: a fan plugged on a header that was empty at detection was never seen. FanFlow now notices a fan it does not know turning, tests the empty headers again (at start and while running) and drives the new fan.
+
 ###2026.11.25.1912
 - Fix: after a reboot the fans were "no longer found" and stayed with the BIOS, because the sensor chip driver loaded during detection was not loaded again. The service now loads it at start (and tries again every 10 minutes while fans are missing).
 
@@ -992,7 +995,7 @@ cat > /usr/local/emhttp/plugins/fanflow/include/lib/common.php <<'FANFLOW_EOF'
 // Every path goes through ff_path(), so the whole plugin runs against a simulated machine when
 // FANFLOW_ROOT points to a folder holding a fake /sys, /var/local/emhttp and /boot (see test/sim).
 
-const FF_VERSION = '2026.11.25.1912';
+const FF_VERSION = '2026.11.25.1945';
 
 function ff_root(): string {
   $root = getenv('FANFLOW_ROOT');
@@ -1523,7 +1526,17 @@ function ff_detect(?array $previous, bool $full, ?callable $progress = null): ar
 function ff_hardware_changed(array $hardware, array $chips): array {
   $now = ff_controllable_outputs($chips);
   $known = array_merge(array_keys($hardware['fans'] ?? []), $hardware['emptyOutputs'] ?? []);
-  return ['new' => array_values(array_diff($now, $known)), 'missing' => array_values(array_diff(array_keys($hardware['fans'] ?? []), $now))];
+  $new = array_values(array_diff($now, $known));
+  // A fan plugged on an output found empty before: a tachometer that no known fan uses now
+  // turns. Which output it hangs on is unknown without a test, so the empty outputs are tested again.
+  $empty = array_values(array_intersect($hardware['emptyOutputs'] ?? [], $now));
+  if ($empty) {
+    $used = array_merge(array_filter(array_column($hardware['fans'] ?? [], 'tach')), array_column($hardware['otherFans'] ?? [], 'tach'));
+    foreach (ff_all_rpms(array_filter($chips, fn($c) => !$c['gpu'])) as $tach => $rpm) {
+      if ($rpm > 0 && !in_array($tach, $used, true)) { $new = array_merge($new, $empty); break; }
+    }
+  }
+  return ['new' => $new, 'missing' => array_values(array_diff(array_keys($hardware['fans'] ?? []), $now))];
 }
 FANFLOW_EOF
 cat > /usr/local/emhttp/plugins/fanflow/include/lib/hwmon.php <<'FANFLOW_EOF'
@@ -1962,7 +1975,10 @@ class FanFlow {
     $this->fans = [];
     $this->mode = 'detecting';
     $last = 0;
-    $hw = ff_detect($full ? null : $this->hardware, $full, function ($step, $done, $total) use (&$last) {
+    // Partial run: the outputs in changes['new'] are tested, even those known as empty.
+    $previous = $this->hardware;
+    if ($previous) $previous['emptyOutputs'] = array_values(array_diff($previous['emptyOutputs'] ?? [], $this->changes['new']));
+    $hw = ff_detect($full ? null : $previous, $full, function ($step, $done, $total) use (&$last) {
       if (ff_now() - $last < 1 && $step !== 'done') return;
       $last = ff_now();
       $this->publish(['detect' => ['step' => $step, 'done' => $done, 'total' => $total]]);
@@ -2011,7 +2027,10 @@ class FanFlow {
       $this->chips = ff_hwmon_scan();
       // Fans still gone: try their driver again every 10 passes of this kind.
       if ($this->changes['missing'] && $this->pass % 150 === 0) $this->chips = ff_reload_drivers($this->hardware, $this->chips);
-      $this->changes['missing'] = ff_hardware_changed($this->hardware, $this->chips)['missing'];
+      $changed = ff_hardware_changed($this->hardware, $this->chips);
+      $this->changes['missing'] = $changed['missing'];
+      // A fan plugged in while running, or an output that showed up: test only those.
+      if ($changed['new']) { $this->changes['new'] = $changed['new']; $this->detect(false); }
     }
     clearstatcache();
     if ((float)@filemtime(ff_config_file()) !== $this->configTime) $this->loadConfig();
@@ -2293,7 +2312,7 @@ chmod 755 /usr/local/emhttp/plugins/fanflow/scripts/rc.fanflow
 cp /usr/local/emhttp/plugins/fanflow/scripts/rc.fanflow /etc/rc.d/rc.fanflow && chmod 755 /etc/rc.d/rc.fanflow
 /etc/rc.d/rc.fanflow start
 echo ""
-echo "FanFlow 2026.11.25.1912 is installed."
+echo "FanFlow 2026.11.25.1945 is installed."
 echo "The first start detects the fans: each one speeds up to full for a few seconds."
 echo "Settings: Settings > User Utilities > FanFlow. Dashboard: the FanFlow tile."
 echo ""

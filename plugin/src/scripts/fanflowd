@@ -73,7 +73,10 @@ class FanFlow {
     $this->fans = [];
     $this->mode = 'detecting';
     $last = 0;
-    $hw = ff_detect($full ? null : $this->hardware, $full, function ($step, $done, $total) use (&$last) {
+    // Partial run: the outputs in changes['new'] are tested, even those known as empty.
+    $previous = $this->hardware;
+    if ($previous) $previous['emptyOutputs'] = array_values(array_diff($previous['emptyOutputs'] ?? [], $this->changes['new']));
+    $hw = ff_detect($full ? null : $previous, $full, function ($step, $done, $total) use (&$last) {
       if (ff_now() - $last < 1 && $step !== 'done') return;
       $last = ff_now();
       $this->publish(['detect' => ['step' => $step, 'done' => $done, 'total' => $total]]);
@@ -122,7 +125,10 @@ class FanFlow {
       $this->chips = ff_hwmon_scan();
       // Fans still gone: try their driver again every 10 passes of this kind.
       if ($this->changes['missing'] && $this->pass % 150 === 0) $this->chips = ff_reload_drivers($this->hardware, $this->chips);
-      $this->changes['missing'] = ff_hardware_changed($this->hardware, $this->chips)['missing'];
+      $changed = ff_hardware_changed($this->hardware, $this->chips);
+      $this->changes['missing'] = $changed['missing'];
+      // A fan plugged in while running, or an output that showed up: test only those.
+      if ($changed['new']) { $this->changes['new'] = $changed['new']; $this->detect(false); }
     }
     clearstatcache();
     if ((float)@filemtime(ff_config_file()) !== $this->configTime) $this->loadConfig();
