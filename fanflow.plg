@@ -3,7 +3,7 @@
 
 <PLUGIN name="fanflow"
         author="R0m1k3"
-        version="2026.11.24.1001"
+        version="2026.11.25.1912"
         launch="Settings/FanFlow"
         pluginURL="https://raw.githubusercontent.com/R0m1k3/FanFlow/main/fanflow.plg"
         support="https://github.com/R0m1k3/FanFlow/issues"
@@ -11,6 +11,9 @@
         min="7.0.0">
 
 <CHANGES>
+###2026.11.25.1912
+- Fix: after a reboot the fans were "no longer found" and stayed with the BIOS, because the sensor chip driver loaded during detection was not loaded again. The service now loads it at start (and tries again every 10 minutes while fans are missing).
+
 ###2026.11.24.1001
 - First release. Detects the fans by itself (sensor chip driver, CPU, graphics cards and disk temperatures, which output drives which fan, each fan's speed range) and drives them from the CPU, graphics card and disk temperatures. Graphics cards keep their own fans.
 - Dashboard tile: temperatures with their last ten minutes, each fan with its speed and what drives it.
@@ -989,7 +992,7 @@ cat > /usr/local/emhttp/plugins/fanflow/include/lib/common.php <<'FANFLOW_EOF'
 // Every path goes through ff_path(), so the whole plugin runs against a simulated machine when
 // FANFLOW_ROOT points to a folder holding a fake /sys, /var/local/emhttp and /boot (see test/sim).
 
-const FF_VERSION = '2026.11.24.1001';
+const FF_VERSION = '2026.11.25.1912';
 
 function ff_root(): string {
   $root = getenv('FANFLOW_ROOT');
@@ -1287,6 +1290,39 @@ function ff_load_drivers(array $chips): array {
     if (ff_controllable_outputs(ff_hwmon_scan())) { $loaded[] = $module; break; }
   }
   return [$tried, $loaded];
+}
+
+// Module that drives a sensor chip, from the chip name hwmon gives ("nct6799" -> nct6775).
+function ff_driver_for_chip(string $chip): ?string {
+  $map = ['/^nct66(8[3-7])/' => 'nct6683', '/^nct67\d\d|^nct6106|^nct6116/' => 'nct6775', '/^it8[67]/' => 'it87',
+    '/^(f71|f8000|f81)/' => 'f71882fg', '/^w836/' => 'w83627ehf', '/^asus/' => 'asus_ec_sensors'];
+  foreach ($map as $re => $module) if (preg_match($re, $chip)) return $module;
+  return null;
+}
+
+// After a reboot the sensor driver that detection loaded is gone, and with it every fan of that
+// chip. Load it again (the module of each missing chip, then the ones detection loaded, then the
+// usual list) until the known fans are back. Returns the new scan.
+function ff_reload_drivers(array $hardware, array $chips): array {
+  $missing = ff_hardware_changed($hardware, $chips)['missing'];
+  if (!$missing || ff_root() !== '') return $chips;
+  $modules = [];
+  foreach ($missing as $fanId) {
+    $module = ff_driver_for_chip(explode(':', $fanId)[0]);
+    if ($module) $modules[] = $module;
+  }
+  $modules = array_values(array_unique(array_merge($modules, $hardware['drivers']['loaded'] ?? [], FF_DRIVERS)));
+  foreach ($modules as $module) {
+    exec('modprobe ' . escapeshellarg($module) . ' 2>/dev/null', $o, $code);
+    if ($code !== 0) continue;
+    usleep(500000);
+    $chips = ff_hwmon_scan();
+    if (!ff_hardware_changed($hardware, $chips)['missing']) {
+      ff_log("sensor driver $module loaded, known fans back");
+      break;
+    }
+  }
+  return $chips;
 }
 
 // The kernel refused the sensor chip because the ACPI firmware claims the same ports; the fix is
@@ -1900,6 +1936,7 @@ class FanFlow {
     if (!$this->hardware) {
       $this->detect(true);
     } else {
+      $this->chips = ff_reload_drivers($this->hardware, $this->chips);
       $this->changes = ff_hardware_changed($this->hardware, $this->chips);
       if ($this->changes['new']) $this->detect(false);
       else $this->refreshSources();
@@ -1970,7 +2007,12 @@ class FanFlow {
 
   function pass(): void {
     $this->pass++;
-    if ($this->pass % 15 === 0) $this->chips = ff_hwmon_scan(); // drivers reloaded, hwmon renumbered
+    if ($this->pass % 15 === 0 && $this->hardware) { // drivers reloaded, hwmon renumbered
+      $this->chips = ff_hwmon_scan();
+      // Fans still gone: try their driver again every 10 passes of this kind.
+      if ($this->changes['missing'] && $this->pass % 150 === 0) $this->chips = ff_reload_drivers($this->hardware, $this->chips);
+      $this->changes['missing'] = ff_hardware_changed($this->hardware, $this->chips)['missing'];
+    }
     clearstatcache();
     if ((float)@filemtime(ff_config_file()) !== $this->configTime) $this->loadConfig();
 
@@ -2251,7 +2293,7 @@ chmod 755 /usr/local/emhttp/plugins/fanflow/scripts/rc.fanflow
 cp /usr/local/emhttp/plugins/fanflow/scripts/rc.fanflow /etc/rc.d/rc.fanflow && chmod 755 /etc/rc.d/rc.fanflow
 /etc/rc.d/rc.fanflow start
 echo ""
-echo "FanFlow 2026.11.24.1001 is installed."
+echo "FanFlow 2026.11.25.1912 is installed."
 echo "The first start detects the fans: each one speeds up to full for a few seconds."
 echo "Settings: Settings > User Utilities > FanFlow. Dashboard: the FanFlow tile."
 echo ""

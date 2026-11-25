@@ -47,6 +47,7 @@ class FanFlow {
     if (!$this->hardware) {
       $this->detect(true);
     } else {
+      $this->chips = ff_reload_drivers($this->hardware, $this->chips);
       $this->changes = ff_hardware_changed($this->hardware, $this->chips);
       if ($this->changes['new']) $this->detect(false);
       else $this->refreshSources();
@@ -117,7 +118,12 @@ class FanFlow {
 
   function pass(): void {
     $this->pass++;
-    if ($this->pass % 15 === 0) $this->chips = ff_hwmon_scan(); // drivers reloaded, hwmon renumbered
+    if ($this->pass % 15 === 0 && $this->hardware) { // drivers reloaded, hwmon renumbered
+      $this->chips = ff_hwmon_scan();
+      // Fans still gone: try their driver again every 10 passes of this kind.
+      if ($this->changes['missing'] && $this->pass % 150 === 0) $this->chips = ff_reload_drivers($this->hardware, $this->chips);
+      $this->changes['missing'] = ff_hardware_changed($this->hardware, $this->chips)['missing'];
+    }
     clearstatcache();
     if ((float)@filemtime(ff_config_file()) !== $this->configTime) $this->loadConfig();
 
