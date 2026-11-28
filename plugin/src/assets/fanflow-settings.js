@@ -56,7 +56,7 @@
     if (m === 'detecting') b = ['info', t('banner.detecting', { done: (s.detect || {}).done || 0, total: (s.detect || {}).total || '…' })];
     else if (m === 'critical' && s.reason) b = ['hot', t('banner.critical', { src: F.sourceName(s.reason.source, s), temp: Math.round(s.reason.temp), limit: s.reason.limit })];
     else if (m === 'failsafe') b = ['hot', t('banner.failsafe')];
-    else if (m === 'readonly' && s.conflicts && s.conflicts.length) b = ['warm', t('banner.readonly', { what: s.conflicts.map(function (c) { return c === 'external' ? t('banner.external') : c; }).join(', ') })];
+    else if (m === 'readonly' && s.conflicts && s.conflicts.length) b = ['warm', t('banner.readonly', { what: F.conflictText(s) })];
     else if (m === 'bios') b = ['info', t('banner.bios')];
     else if (m === 'stopped' || m === 'stale') b = ['warm', t('banner.stopped')];
     var out = b ? '<div class="ff-banner ff-banner--' + b[0] + '">' + esc(b[1]) + '</div>' : '';

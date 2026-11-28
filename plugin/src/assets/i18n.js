@@ -18,6 +18,7 @@
       'banner.failsafe': 'CPU temperature unreadable: every fan at full speed.',
       'banner.readonly': 'Another program drives the fans ({what}). FanFlow only shows readings.',
       'banner.external': 'a fan was changed outside FanFlow',
+      'banner.externalFan': '{fan} was changed outside FanFlow; FanFlow tries again every 5 minutes, saving the settings takes it back at once',
       'banner.bios': 'FanFlow is switched off: the BIOS drives the fans.',
       'banner.stopped': 'The FanFlow service is not running.',
       'banner.new': 'New fan output(s) found: {n}.', 'banner.missing': '{n} fan(s) no longer found: {list}.',
@@ -58,6 +59,7 @@
       'banner.failsafe': 'Température CPU illisible : tous les ventilateurs à fond.',
       'banner.readonly': 'Un autre programme pilote les ventilateurs ({what}). FanFlow affiche seulement les mesures.',
       'banner.external': 'un ventilateur a été changé en dehors de FanFlow',
+      'banner.externalFan': '{fan} a été changé en dehors de FanFlow ; nouvel essai toutes les 5 minutes, enregistrer les réglages reprend la main tout de suite',
       'banner.bios': 'FanFlow est désactivé : le BIOS pilote les ventilateurs.',
       'banner.stopped': 'Le service FanFlow ne tourne pas.',
       'banner.new': 'Nouvelle(s) sortie(s) de ventilateur trouvée(s) : {n}.', 'banner.missing': '{n} ventilateur(s) introuvable(s) : {list}.',
@@ -113,6 +115,15 @@
     var m = /(?:pwm|fan)(\d+)$/.exec(f.id || '');
     return t('fan', { n: m ? m[1] : '?' });
   }
+  // What the read-only banner lists: the programs found, or the fan changed behind FanFlow's back.
+  function conflictText(state) {
+    return (state.conflicts || []).map(function (c) {
+      if (c !== 'external') return c;
+      var id = (state.external || {}).fan, f = null;
+      (state.fans || []).forEach(function (x) { if (x.id === id) f = x; });
+      return f ? t('banner.externalFan', { fan: fanName(f) }) : t('banner.external');
+    }).join(', ');
+  }
   // State of a fan FanFlow does not drive: "running since 14:32", "stopped since 14:40".
   function otherStatus(o) {
     var on = o.on != null ? o.on : o.rpm > 0;
@@ -152,6 +163,6 @@
       '<polyline points="0,24 ' + line + ' 100,24" class="ff-spark-fill"/><polyline points="' + line + '" class="ff-spark-line"/></svg>';
   }
 
-  window.FanFlow = { t: t, esc: esc, lang: lang, gpuName: gpuName, sourceName: sourceName, fanName: fanName, otherStatus: otherStatus, heat: heat, limitFor: limitFor, rotor: rotor, sparkline: sparkline,
+  window.FanFlow = { t: t, esc: esc, lang: lang, gpuName: gpuName, sourceName: sourceName, fanName: fanName, conflictText: conflictText, otherStatus: otherStatus, heat: heat, limitFor: limitFor, rotor: rotor, sparkline: sparkline,
     base: '/plugins/fanflow' };
 })();
