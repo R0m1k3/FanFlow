@@ -13,7 +13,7 @@
     if (m === 'detecting' && s.detect) return ['info', t('banner.detecting', { done: s.detect.done, total: s.detect.total || '…' })];
     if (m === 'critical' && s.reason) return ['hot', t('banner.critical', { src: F.sourceName(s.reason.source, s), temp: Math.round(s.reason.temp), limit: s.reason.limit })];
     if (m === 'failsafe') return ['hot', t('banner.failsafe')];
-    if (m === 'readonly' && s.conflicts && s.conflicts.length) return ['warm', t('banner.readonly', { what: s.conflicts.map(function (c) { return c === 'external' ? t('banner.external') : c; }).join(', ') })];
+    if (m === 'readonly' && s.conflicts && s.conflicts.length) return ['warm', t('banner.readonly', { what: F.conflictText(s) })];
     if (m === 'bios') return ['info', t('banner.bios')];
     if (m === 'stopped' || m === 'stale') return ['warm', t('banner.stopped')];
     return null;

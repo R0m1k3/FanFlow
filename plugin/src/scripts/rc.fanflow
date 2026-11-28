@@ -24,6 +24,7 @@ start() {
       /usr/bin/php -q '$DAEMON'
       code=\$?
       [[ -f '$RUN/stop' ]] && break
+      [[ \$code -eq 3 ]] && break   # another copy already runs
       logger -t fanflow -- \"fanflowd ended (code \$code), restarting in 10 s\"
       sleep 10
     done

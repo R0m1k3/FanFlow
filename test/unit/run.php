@@ -177,6 +177,38 @@ daemon('--passes 2');
 check('read-only while fancontrol runs', state()['mode'] === 'readonly' && val('nct6799', 'pwm1_enable') === '5' && in_array('fancontrol', state()['conflicts'], true));
 exec('rm -rf ' . escapeshellarg("$simRoot/proc/4242"));
 
+section('output changed outside FanFlow');
+daemon('--restore');
+$sim = json_decode(file_get_contents("$simRoot/sim.json"), true);
+$sim['fans'][0]['clamp'] = 40;
+file_put_contents("$simRoot/sim.json", json_encode($sim));
+daemon('--passes 10');
+check('chip reading back another value: still driven', state()['mode'] === 'auto' && !state()['conflicts'], state()['conflicts']);
+unset($sim['fans'][0]['clamp']);
+$sim['fans'][0]['fight'] = 255;
+file_put_contents("$simRoot/sim.json", json_encode($sim));
+daemon('--passes 10');
+check('another program rewriting an output: read-only', state()['mode'] === 'readonly' && in_array('external', state()['conflicts'], true) && (state()['external']['fan'] ?? '') === "{$pfx}pwm1", state()['external'] ?? null);
+unset($sim['fans'][0]['fight']);
+$sim['fans'][0]['takeover'] = true;
+file_put_contents("$simRoot/sim.json", json_encode($sim));
+daemon('--restore');
+daemon('--passes 10');
+check('output put back in automatic mode by someone else: read-only', state()['mode'] === 'readonly' && in_array('external', state()['conflicts'], true));
+unset($sim['fans'][0]['takeover']);
+file_put_contents("$simRoot/sim.json", json_encode($sim));
+daemon('--restore');
+
+section('one service at a time');
+@mkdir("$simRoot/var/local/fanflow", 0755, true);
+$lock = fopen("$simRoot/var/local/fanflow/fanflowd.lock", 'c');
+flock($lock, LOCK_EX);
+$env = 'FANFLOW_ROOT=' . escapeshellarg($simRoot) . ' FANFLOW_FAST=1';
+exec("$env php " . escapeshellarg("$src/scripts/fanflowd") . ' --passes 1 2>&1', $out, $code);
+check('second copy exits with code 3', $code === 3, $out);
+flock($lock, LOCK_UN);
+fclose($lock);
+
 section('stalled fan');
 $sim = json_decode(file_get_contents("$simRoot/sim.json"), true);
 $sim['fans'][0]['stuck'] = true;

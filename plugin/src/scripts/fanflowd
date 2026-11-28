@@ -33,6 +33,7 @@ class FanFlow {
   public array $conflicts = [];
   public array $procConflicts = [];
   public bool $external = false;   // a fan's output changed behind FanFlow's back
+  public ?array $externalInfo = null; // which fan, what was read, when
   public string $mode = 'starting';
   public ?array $reason = null;
   public int $cpuMisses = 0;
@@ -64,7 +65,8 @@ class FanFlow {
 
   function loadConfig(): void {
     clearstatcache();
-    $this->external = false; // saving the settings is the way to take the fans back
+    $this->external = false; // saving the settings takes the fans back at once
+    $this->externalInfo = null;
     $this->configTime = (float)@filemtime(ff_config_file());
     $this->config = ff_load_config($this->hardware);
   }
@@ -148,6 +150,11 @@ class FanFlow {
     $cfg = $this->config;
 
     if ($this->pass === 1 || $this->pass % 3 === 0) $this->procConflicts = ff_conflicts();
+    // Unknown program: FanFlow tries again every five minutes instead of giving up for good.
+    if ($this->external && ff_now() - ($this->externalInfo['at'] ?? 0) >= 300) {
+      $this->external = false;
+      ff_log('taking the fans back after a change outside FanFlow');
+    }
     $this->conflicts = array_merge($this->procConflicts, $this->external ? ['external'] : []);
     $this->reason = null;
     $hasCpu = !empty($this->hardware['sources']['cpu']);
@@ -199,12 +206,30 @@ class FanFlow {
       $st = ['by' => 'bios', 'pct' => ff_pwm_to_pct(ff_pwm_get($dir, $ch) ?? 0)];
       return;
     }
-    // FanFlow's own value written last pass: if it changed behind our back, someone else drives it.
+    // Did someone else change the output since FanFlow wrote it? Some chips read back another
+    // value than the one written (the real output, rounded or clamped): the first value read after
+    // a write is taken as the chip's answer ('echo'), and only a change from it counts. On every
+    // doubt FanFlow writes its value again; only an output changed back five passes in a row
+    // means another program really drives it.
+    $force = false;
     if (isset($st['written'])) {
       $enable = ff_pwm_enable_get($dir, $ch);
       $now = ff_pwm_get($dir, $ch);
-      $st['external'] = ($enable !== 1 || ($now !== null && abs($now - $st['written']) > 3)) ? ($st['external'] ?? 0) + 1 : 0;
-      if ($st['external'] >= 3) { $this->external = true; return; }
+      if (!isset($st['echo']) && $now !== null) $st['echo'] = $now;
+      $moved = $now !== null && abs($now - $st['echo']) > 3;
+      if ($enable !== 1 || $moved) {
+        $st['external'] = ($st['external'] ?? 0) + 1;
+        $force = true;
+        if ($st['external'] === 1) ff_log("$id changed outside FanFlow: mode $enable, value $now, written {$st['written']}, read back {$st['echo']}");
+        if ($st['external'] >= 5) {
+          $this->external = true;
+          $this->externalInfo = ['fan' => $id, 'enable' => $enable, 'value' => $now, 'written' => $st['written'], 'at' => (int)ff_now()];
+          ff_log("$id: another program drives it, FanFlow only shows readings");
+          return;
+        }
+      } else {
+        $st['external'] = 0;
+      }
     }
     $current = $st['pct'] ?? (float)ff_pwm_to_pct(ff_pwm_get($dir, $ch) ?? 255);
     if (($st['by'] ?? '') === 'bios') $current = (float)ff_pwm_to_pct(ff_pwm_get($dir, $ch) ?? 255);
@@ -219,7 +244,12 @@ class FanFlow {
 
     ff_remember_original($id, $dir, $ch);
     $raw = ff_pct_to_pwm($write);
-    if (($st['written'] ?? -1) !== $raw || ff_pwm_enable_get($dir, $ch) !== 1) ff_pwm_set($dir, $ch, $raw);
+    if ($force || ($st['written'] ?? -1) !== $raw || ff_pwm_enable_get($dir, $ch) !== 1) {
+      ff_pwm_set($dir, $ch, $raw);
+      // The chip's answer to a new value is read next pass, once applied; while in doubt the old
+      // answer stays the reference, so a program that keeps rewriting the output cannot hide.
+      if (empty($st['external'])) unset($st['echo']);
+    }
     $st['written'] = $raw;
     $st['pct'] = $pct;
     $st['by'] = $by;
@@ -292,6 +322,7 @@ class FanFlow {
       'interval' => $this->config['interval'] ?? 4,
       'critical' => $this->config['critical'] ?? ff_default_config()['critical'],
       'conflicts' => $this->conflicts,
+      'external' => $this->external ? $this->externalInfo : null,
       'detect' => null,
       'fans' => $fans,
       'otherFans' => $others,
@@ -301,6 +332,15 @@ class FanFlow {
     $this->lastState = $state;
     ff_write_json(ff_state_file(), $state);
   }
+}
+
+// One service at a time: a second copy would fight the first over the outputs (and each would
+// take the other for "another program"). rc.fanflow stops its restart loop on exit code 3.
+$lockFile = fopen(ff_run_dir() . '/fanflowd.lock', 'c');
+$daemonRun = !in_array('--detect', $args, true);
+if ($daemonRun && $lockFile && !flock($lockFile, LOCK_EX | LOCK_NB)) {
+  ff_log('already running, this copy exits');
+  exit(3);
 }
 
 $ff = new FanFlow();
